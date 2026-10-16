@@ -1,0 +1,15 @@
+const assert=require('node:assert/strict'),C=require('../sim-core.js');
+let s=C.newLife({seed:123});
+// Clock progression does not jump years, and obeys every multiplier and pause.
+for(let speed=1;speed<=8;speed++){let t=C.newLife({seed:1,yearSeconds:60});t.speed=speed;for(let j=0;j<20;j++)C.advance(t,.25);assert.equal(t.month,speed);}
+s.paused=true;C.advance(s,1);assert.equal(s.month,0);s.paused=false;s.pending={choices:[['ok',{}]]};C.advance(s,1);assert.equal(s.month,0);C.resolve(s,0);
+// Trades conserve value except disclosed fees, rejecting invalid and unaffordable orders.
+s.month=240;s.cash=1000000;const net=C.net(s);assert(C.trade(s,'index',100000,'buy').ok);assert.equal(s.cash,900000);assert(Math.abs(C.net(s)-(net-100))<1e-6);assert(!C.trade(s,'coin',-100,'buy').ok);assert(!C.trade(s,'coin',Infinity,'buy').ok);assert(!C.trade(s,'coin',1e9,'buy').ok);assert(!C.trade(s,'coin',100,'sell').ok);assert(C.trade(s,'index',99900,'sell').ok);assert(Math.abs(s.cash-999800.1)<.01);
+// Savings: 12 deposits, maturity and cancellation return funds exactly once.
+s=C.newLife({seed:2});s.month=240;s.cash=10000000;s.baseSalary=3000000;s.done=C.milestones.map(e=>e.id);s.nextEvent=1e9;assert(C.openSavings(s,100000,12).ok);for(let j=0;j<12;j++){s.pending=null;C.monthly(s)}assert.equal(s.savings.length,0);assert.equal(s.ledger.saving,0);assert(s.cash>10000000+12*(3000000-C.expenses(s)));
+assert(C.openSavings(s,200000,24).ok);const id=s.savings[0].id,cash=s.cash;assert(C.cancelSavings(s,id).ok);assert.equal(s.cash,cash+200000);assert(!C.cancelSavings(s,id).ok);
+// Shortfalls borrow only the difference; repayment and actions reject overspending.
+s=C.newLife({seed:3});s.month=239;s.cash=0;s.baseSalary=0;s.nextEvent=1e9;s.done=C.milestones.map(e=>e.id);C.monthly(s);assert.equal(s.cash,0);assert.equal(s.debt,C.expenses(s));assert(!C.repay(s,10).ok);s.cash=10000;assert(C.repay(s,10000).ok);assert(!C.action(s,'trip').ok);assert(C.action(s,'walk').ok);assert(!C.action(s,'walk').ok);
+// Full lives: conditional events, all paths reach the ending, state remains finite.
+for(let route=0;route<3;route++){s=C.newLife({seed:55+route});let count=0;while(!s.finished&&count++<1500){if(s.pending){let choices=s.pending.choices.map((v,i)=>({v,i})).filter(({v})=>!v[1].cash||v[1].cash>=0||s.cash>=-v[1].cash);assert(choices.length);assert(C.resolve(s,choices[route%choices.length].i).ok)}else C.monthly(s);for(const k of ['health','joy','bond','knowledge'])assert(s[k]>=0&&s[k]<=100);assert(Number.isFinite(C.net(s)));assert(s.cash>=0);assert(s.debt>=0)}assert(s.finished);assert.equal(s.month,1020);assert(s.decisions>50);const past=C.rewind(s,5);assert(past);assert(past.rewound);assert(!past.finished);assert(!C.rewind(past,0));}
+console.log('PASS: speeds 1–8, pause/event lock, trades/fees/invalid orders, savings maturity/cancel, debt/repay, activity cooldown, 3 complete 85-year lives, 50+ choices, rewind.');
